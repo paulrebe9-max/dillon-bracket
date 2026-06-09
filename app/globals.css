@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --dillon-navy: #1a2b4a;
+  --dillon-teal: #0e7c7b;
+  --dillon-gold: #f0a500;
+  --dillon-light: #f4f6f9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--dillon-light);
+  color: var(--dillon-navy);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.stadium-bg {
+  background: linear-gradient(135deg, #1a2b4a 0%, #0e7c7b 100%);
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+}
+
+.btn-primary {
+  background: var(--dillon-teal);
+  color: white;
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 1rem;
+}
+.btn-primary:hover {
+  background: #0a5f5e;
+  transform: translateY(-1px);
+}
+.btn-primary:disabled {
+  background: #ccc;
+  transform: none;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--dillon-teal);
+  padding: 0.75rem 2rem;
+  border-radius: 8px;
+  font-weight: 600;
+  border: 2px solid var(--dillon-teal);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 1rem;
+}
+.btn-secondary:hover {
+  background: var(--dillon-teal);
+  color: white;
+}
+
+.team-card {
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: grab;
+  transition: all 0.15s;
+  user-select: none;
+}
+.team-card:hover {
+  border-color: var(--dillon-teal);
+  box-shadow: 0 2px 8px rgba(14, 124, 123, 0.15);
+}
+.team-card.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.rank-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+.rank-1 { background: #ffd700; color: #7a6000; }
+.rank-2 { background: #c0c0c0; color: #555; }
+.rank-3 { background: #cd7f32; color: #5a3500; }
+.rank-4 { background: #f0f0f0; color: #888; }
+
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cbd5e0;
+  transition: all 0.3s;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.step-dot.active {
+  background: var(--dillon-teal);
+  transform: scale(1.3);
+}
+.step-dot.done {
+  background: var(--dillon-gold);
+}
+
+.bracket-match {
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  width: 180px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.bracket-match:hover {
+  border-color: var(--dillon-teal);
+  box-shadow: 0 2px 8px rgba(14, 124, 123, 0.2);
+}
+.bracket-team {
+  padding: 0.5rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+.bracket-team:first-child {
+  border-bottom: 1px solid #e2e8f0;
+}
+.bracket-team.selected {
+  background: #e6f7f7;
+  color: var(--dillon-teal);
+  font-weight: 700;
+}
+
+.countdown-box {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  min-width: 70px;
+}
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 48px 1fr 80px 80px 120px;
+  align-items: center;
+  padding: 0.875rem 1rem;
+  border-bottom: 1px solid #f0f4f8;
+  transition: background 0.15s;
+}
+.leaderboard-row:hover {
+  background: #f8fafc;
+}
+.leaderboard-row.me {
+  background: #e6f7f7;
+  border-left: 3px solid var(--dillon-teal);
+}
