@@ -1,4 +1,4 @@
-# Dillon Consulting — 2026 World Cup Bracket Challenge
+# Dillon Consulting — 2026 World Cup Bracket Challenge  
 
 A nickname + email bracket pool (no login). Drag-to-rank group stage,
 knockout bracket, bonus picks, live leaderboard, and an admin panel for
