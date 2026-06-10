@@ -95,38 +95,26 @@ export default function BracketPage() {
 
   const getR32Matches = () => {
     const slots: { slot: string; teamA: Team | null; teamB: Team | null }[] = [];
-    const groupPairs = [
-      ['A', 'B'],
-      ['C', 'D'],
-      ['E', 'F'],
-      ['G', 'H'],
-      ['I', 'J'],
-      ['K', 'L'],
-    ];
-    let slotNum = 1;
-    for (const [g1, g2] of groupPairs) {
+
+    // 32 teams qualify: 12 group winners + 12 runners-up + 8 best third-place.
+    // We build 16 matches so all 32 appear exactly once. The 16 "home" seeds
+    // are the 12 winners plus 4 runners-up; the 16 "away" seeds are the other
+    // 8 runners-up plus the 8 third-place picks.
+    const winners = GROUPS.map((g) => groupOrders[g]?.[0] || null);
+    const runnersUp = GROUPS.map((g) => groupOrders[g]?.[1] || null);
+    const thirds = thirdPlacePicks.slice(0, 8);
+
+    const homeSeeds: (Team | null)[] = [...winners, ...runnersUp.slice(0, 4)];
+    const awaySeeds: (Team | null)[] = [...runnersUp.slice(4), ...thirds];
+
+    for (let i = 0; i < 16; i++) {
       slots.push({
-        slot: `R32_${String(slotNum).padStart(2, '0')}`,
-        teamA: groupOrders[g1]?.[0] || null,
-        teamB: groupOrders[g2]?.[1] || null,
+        slot: `R32_${String(i + 1).padStart(2, '0')}`,
+        teamA: homeSeeds[i] || null,
+        teamB: awaySeeds[i] || null,
       });
-      slotNum++;
-      slots.push({
-        slot: `R32_${String(slotNum).padStart(2, '0')}`,
-        teamA: groupOrders[g2]?.[0] || null,
-        teamB: groupOrders[g1]?.[1] || null,
-      });
-      slotNum++;
     }
-    thirdPlacePicks.slice(0, 8).forEach((team) => {
-      slots.push({
-        slot: `R32_${String(slotNum).padStart(2, '0')}`,
-        teamA: team,
-        teamB: null,
-      });
-      slotNum++;
-    });
-    return slots.slice(0, 16);
+    return slots;
   };
 
   const getMatchesForRound = (round: string, prevSlotPrefix: string) => {
@@ -436,13 +424,25 @@ export default function BracketPage() {
         )}
 
         {currentStep.id === 'R32' && (
-          <KnockoutBracket
-            round="R32"
-            matches={getR32Matches()}
-            winners={knockoutWinners}
-            onPick={handleKnockoutPick}
-            locked={locked}
-          />
+          <div className="flex flex-col gap-4">
+            {thirdPlacePicks.length < 8 && (
+              <div className="card bg-yellow-50 border border-yellow-200">
+                <p className="text-sm text-yellow-800 font-medium">
+                  ⚠️ Some matchups show TBD because you&apos;ve only picked{' '}
+                  {thirdPlacePicks.length} of 8 best third-place teams. Go back
+                  to the <strong>Best 3rd Place</strong> step and pick all 8 to
+                  fill the remaining Round of 32 slots.
+                </p>
+              </div>
+            )}
+            <KnockoutBracket
+              round="R32"
+              matches={getR32Matches()}
+              winners={knockoutWinners}
+              onPick={handleKnockoutPick}
+              locked={locked}
+            />
+          </div>
         )}
 
         {currentStep.id === 'R16' && (
