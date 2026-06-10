@@ -94,46 +94,91 @@ export default function BracketPage() {
   };
 
   const getR32Matches = () => {
-    const slots: { slot: string; teamA: Team | null; teamB: Team | null }[] = [];
+    // Official FIFA 2026 Round of 32 chart (matches M73–M88).
+    // Each entry: home seed, away seed. Seeds use position+group:
+    //   '1A' = winner Group A, '2B' = runner-up Group B,
+    //   '3:ABCDF' = a third-place team from one of groups A/B/C/D/F.
+    // FIFA assigns specific third-place teams to slots via a lookup table once
+    // all 8 are known; for a prediction bracket we fill the third-place slots,
+    // in match order, from the user's 8 picks.
+    const R32_CHART: { slot: string; home: string; away: string }[] = [
+      { slot: 'R32_01', home: '2A', away: '2B' }, // M73
+      { slot: 'R32_02', home: '1E', away: '3:ABCDF' }, // M74
+      { slot: 'R32_03', home: '1F', away: '2C' }, // M75
+      { slot: 'R32_04', home: '1C', away: '2F' }, // M76
+      { slot: 'R32_05', home: '1I', away: '3:CDFGH' }, // M77
+      { slot: 'R32_06', home: '2E', away: '2I' }, // M78
+      { slot: 'R32_07', home: '1A', away: '3:CEFHI' }, // M79
+      { slot: 'R32_08', home: '1L', away: '3:EHIJK' }, // M80
+      { slot: 'R32_09', home: '1D', away: '3:BEFIJ' }, // M81
+      { slot: 'R32_10', home: '1G', away: '3:AEHIJ' }, // M82
+      { slot: 'R32_11', home: '2K', away: '2L' }, // M83
+      { slot: 'R32_12', home: '1H', away: '2J' }, // M84
+      { slot: 'R32_13', home: '1B', away: '3:EFGIJ' }, // M85
+      { slot: 'R32_14', home: '1J', away: '2H' }, // M86
+      { slot: 'R32_15', home: '1K', away: '3:DEIJL' }, // M87
+      { slot: 'R32_16', home: '2D', away: '2G' }, // M88
+    ];
 
-    // 32 teams qualify: 12 group winners + 12 runners-up + 8 best third-place.
-    // We build 16 matches so all 32 appear exactly once. The 16 "home" seeds
-    // are the 12 winners plus 4 runners-up; the 16 "away" seeds are the other
-    // 8 runners-up plus the 8 third-place picks.
-    const winners = GROUPS.map((g) => groupOrders[g]?.[0] || null);
-    const runnersUp = GROUPS.map((g) => groupOrders[g]?.[1] || null);
+    // Resolve a seed code to the predicted team.
+    let thirdIdx = 0;
     const thirds = thirdPlacePicks.slice(0, 8);
+    const resolve = (code: string): Team | null => {
+      if (code.startsWith('3:')) {
+        // assign the user's third-place picks in chart order
+        const t = thirds[thirdIdx] || null;
+        thirdIdx++;
+        return t;
+      }
+      const pos = code[0]; // '1' or '2'
+      const grp = code[1]; // 'A'..'L'
+      const idx = pos === '1' ? 0 : 1;
+      return groupOrders[grp]?.[idx] || null;
+    };
 
-    const homeSeeds: (Team | null)[] = [...winners, ...runnersUp.slice(0, 4)];
-    const awaySeeds: (Team | null)[] = [...runnersUp.slice(4), ...thirds];
-
-    for (let i = 0; i < 16; i++) {
-      slots.push({
-        slot: `R32_${String(i + 1).padStart(2, '0')}`,
-        teamA: homeSeeds[i] || null,
-        teamB: awaySeeds[i] || null,
-      });
-    }
-    return slots;
+    return R32_CHART.map((m) => ({
+      slot: m.slot,
+      teamA: resolve(m.home),
+      teamB: resolve(m.away),
+    }));
   };
 
-  const getMatchesForRound = (round: string, prevSlotPrefix: string) => {
-    const prevWinners = Object.entries(knockoutWinners)
-      .filter(([slot]) => slot.startsWith(prevSlotPrefix))
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([, team]) => team);
+  // Official FIFA feed map: which two earlier matches feed each later match.
+  // Keyed by the produced match's slot; values are the two source slots.
+  const FEED_MAP: Record<string, [string, string]> = {
+    // Round of 16 (M89–M96) fed by Round of 32 winners
+    R16_01: ['R32_02', 'R32_05'], // M89 = W M74 + W M77
+    R16_02: ['R32_01', 'R32_03'], // M90 = W M73 + W M75
+    R16_03: ['R32_04', 'R32_06'], // M91 = W M76 + W M78
+    R16_04: ['R32_07', 'R32_08'], // M92 = W M79 + W M80
+    R16_05: ['R32_09', 'R32_10'], // M93 = W M81 + W M82
+    R16_06: ['R32_11', 'R32_12'], // M94 = W M83 + W M84
+    R16_07: ['R32_13', 'R32_14'], // M95 = W M85 + W M86
+    R16_08: ['R32_15', 'R32_16'], // M96 = W M87 + W M88
+    // Quarter-finals (M97–M100)
+    QF_01: ['R16_01', 'R16_02'], // M97 = W M89 + W M90
+    QF_02: ['R16_03', 'R16_04'], // M98 = W M91 + W M92
+    QF_03: ['R16_05', 'R16_06'], // M99 = W M93 + W M94
+    QF_04: ['R16_07', 'R16_08'], // M100 = W M95 + W M96
+    // Semi-finals (M101–M102)
+    SF_01: ['QF_01', 'QF_02'], // M101 = W M97 + W M98
+    SF_02: ['QF_03', 'QF_04'], // M102 = W M99 + W M100
+    // Final (M104)
+    FINAL_01: ['SF_01', 'SF_02'], // M104 = W M101 + W M102
+  };
 
-    const matches: { slot: string; teamA: Team | null; teamB: Team | null }[] =
-      [];
-    for (let i = 0; i < prevWinners.length; i += 2) {
-      const slotNum = Math.floor(i / 2) + 1;
-      matches.push({
-        slot: `${round}_${String(slotNum).padStart(2, '0')}`,
-        teamA: prevWinners[i] || null,
-        teamB: prevWinners[i + 1] || null,
-      });
-    }
-    return matches;
+  const getMatchesForRound = (round: string) => {
+    const slotsForRound = Object.keys(FEED_MAP).filter((s) =>
+      s.startsWith(round + '_')
+    );
+    return slotsForRound.map((slot) => {
+      const [srcA, srcB] = FEED_MAP[slot];
+      return {
+        slot,
+        teamA: knockoutWinners[srcA] || null,
+        teamB: knockoutWinners[srcB] || null,
+      };
+    });
   };
 
   const handleSave = async () => {
@@ -448,7 +493,7 @@ export default function BracketPage() {
         {currentStep.id === 'R16' && (
           <KnockoutBracket
             round="R16"
-            matches={getMatchesForRound('R16', 'R32')}
+            matches={getMatchesForRound('R16')}
             winners={knockoutWinners}
             onPick={handleKnockoutPick}
             locked={locked}
@@ -458,7 +503,7 @@ export default function BracketPage() {
         {currentStep.id === 'QF' && (
           <KnockoutBracket
             round="QF"
-            matches={getMatchesForRound('QF', 'R16')}
+            matches={getMatchesForRound('QF')}
             winners={knockoutWinners}
             onPick={handleKnockoutPick}
             locked={locked}
@@ -468,7 +513,7 @@ export default function BracketPage() {
         {currentStep.id === 'SF' && (
           <KnockoutBracket
             round="SF"
-            matches={getMatchesForRound('SF', 'QF')}
+            matches={getMatchesForRound('SF')}
             winners={knockoutWinners}
             onPick={handleKnockoutPick}
             locked={locked}
@@ -478,7 +523,7 @@ export default function BracketPage() {
         {currentStep.id === 'FINAL' && (
           <KnockoutBracket
             round="FINAL"
-            matches={getMatchesForRound('FINAL', 'SF')}
+            matches={getMatchesForRound('FINAL')}
             winners={knockoutWinners}
             onPick={handleKnockoutPick}
             locked={locked}
