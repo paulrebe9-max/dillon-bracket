@@ -55,20 +55,91 @@ export default function BracketPage() {
     setEntryId(savedEntry);
     setNickname(savedNick);
 
-    supabase
-      .from('teams')
-      .select('*')
-      .order('fifa_ranking')
-      .then(({ data }) => {
-        if (!data) return;
-        const grouped: Record<string, Team[]> = {};
-        GROUPS.forEach((g) => {
-          grouped[g] = data.filter((t) => t.group_name === g);
-        });
-        setTeams(grouped);
-        setGroupOrders(grouped);
+    const load = async () => {
+      // 1. Load all teams, grouped.
+      const { data: teamData } = await supabase
+        .from('teams')
+        .select('*')
+        .order('fifa_ranking');
+      if (!teamData) {
         setLoading(false);
+        return;
+      }
+      const grouped: Record<string, Team[]> = {};
+      GROUPS.forEach((g) => {
+        grouped[g] = teamData.filter((t) => t.group_name === g);
       });
+      const teamById: Record<string, Team> = {};
+      teamData.forEach((t) => (teamById[t.id] = t));
+      setTeams(grouped);
+
+      // 2. Load this user's saved picks, if any.
+      const { data: savedPicks } = await supabase
+        .from('picks')
+        .select('match_slot, pick_type, team_id, predicted_rank')
+        .eq('entry_id', savedEntry);
+
+      // Start from the default (FIFA-ranked) order, then override with saved.
+      const restoredOrders: Record<string, Team[]> = { ...grouped };
+      const restoredThirds: Team[] = [];
+      const restoredKnockout: Record<string, Team> = {};
+
+      if (savedPicks && savedPicks.length > 0) {
+        // Group rankings: rebuild each group's order from saved ranks.
+        const groupRank: Record<string, (Team | undefined)[]> = {};
+        savedPicks.forEach((p) => {
+          if (p.match_slot.startsWith('GROUP_')) {
+            const [, letter] = p.match_slot.split('_');
+            const team = teamById[p.team_id];
+            if (!team) return;
+            const rank = (p.predicted_rank ?? 1) - 1;
+            (groupRank[letter] ||= [])[rank] = team;
+          } else if (p.match_slot.startsWith('THIRD_')) {
+            const team = teamById[p.team_id];
+            if (team) restoredThirds.push(team);
+          } else {
+            // knockout slot (R32_xx, R16_xx, QF_xx, SF_xx, FINAL_01)
+            const team = teamById[p.team_id];
+            if (team) restoredKnockout[p.match_slot] = team;
+          }
+        });
+        // Apply restored group orders (fill any gaps from default order).
+        Object.entries(groupRank).forEach(([letter, arr]) => {
+          const base = grouped[letter] || [];
+          const seen = new Set<string>();
+          const ordered: Team[] = [];
+          arr.forEach((t) => {
+            if (t && !seen.has(t.id)) {
+              ordered.push(t);
+              seen.add(t.id);
+            }
+          });
+          base.forEach((t) => {
+            if (!seen.has(t.id)) ordered.push(t);
+          });
+          restoredOrders[letter] = ordered;
+        });
+      }
+
+      setGroupOrders(restoredOrders);
+      setThirdPlacePicks(restoredThirds);
+      setKnockoutWinners(restoredKnockout);
+
+      // 3. Load saved bonus picks from the entry row.
+      const { data: entryRow } = await supabase
+        .from('entries')
+        .select('bonus_picks')
+        .eq('id', savedEntry)
+        .single();
+      const bonus = entryRow?.bonus_picks || {};
+      if (bonus.top_scorer) setTopScorer(bonus.top_scorer);
+      if (bonus.dark_horse) setDarkHorse(bonus.dark_horse);
+      if (bonus.upset_team) setUpsetTeam(bonus.upset_team);
+
+      setLoading(false);
+    };
+
+    load();
   }, []);
 
   const handleGroupSave = (groupName: string, orderedTeams: Team[]) => {
