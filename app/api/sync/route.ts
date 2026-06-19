@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase-admin';
+import { recomputeAllScores } from '@/lib/scoring';
 
 // Run on the Node runtime (needs the service-role key) and never cache.
 export const runtime = 'nodejs';
@@ -213,15 +214,26 @@ export async function POST() {
 
   await Promise.all(updates);
 
+  // Recompute everyone's points now that match results may have changed.
+  let scored = 0;
+  try {
+    const result = await recomputeAllScores(admin);
+    scored = result.scored;
+  } catch (err) {
+    // Scoring failure must not break the sync response; results are still saved.
+    console.error('Scoring failed after sync:', err);
+  }
+
   await admin.from('admin_log').insert({
     action: 'api_sync',
-    after_json: { fixtures: fixtures.length, updated },
+    after_json: { fixtures: fixtures.length, updated, scored },
   });
 
   return NextResponse.json({
     ok: true,
     fixtures_seen: fixtures.length,
     matches_updated: updated,
+    entries_scored: scored,
   });
 }
 
