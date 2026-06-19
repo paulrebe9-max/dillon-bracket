@@ -112,7 +112,14 @@ export default function AdminPage() {
       },
     });
 
-    setMsg('Result saved!');
+    // Recompute everyone's points now that this result changed.
+    try {
+      await fetch('/api/recompute', { method: 'POST' });
+    } catch {
+      // non-fatal: the result is saved; scores can be recomputed via Sync too
+    }
+
+    setMsg('Result saved & scores updated!');
     fetchData();
     setSaving(false);
     setTimeout(() => setMsg(''), 3000);
