@@ -504,7 +504,7 @@ function KnockoutPanel({
     setSavingSlot(m.appSlot);
     setNote('');
     try {
-      const res = await fetch('/api/knockout', {
+      const res = await fetch('/api/sync/knockout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slot: m.appSlot, ...e }),
