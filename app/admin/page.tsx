@@ -12,9 +12,9 @@ export default function AdminPage() {
   const [matches, setMatches] = useState<any[]>([]);
   const [teams, setTeams] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'entries' | 'results' | 'export'>(
-    'entries'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'entries' | 'results' | 'knockout' | 'export'
+  >('entries');
   const [matchEdit, setMatchEdit] = useState<
     Record<string, { home: string; away: string; status: string }>
   >({});
@@ -77,15 +77,21 @@ export default function AdminPage() {
   };
 
   const handleSaveResult = async (matchId: string) => {
-    const edit = matchEdit[matchId];
-    if (!edit) return;
+    const match = matches.find((m) => m.id === matchId);
+    if (!match) return;
+    // Fall back to the match's current values if the admin didn't retype
+    // anything, so clicking Save always does something visible.
+    const edit = matchEdit[matchId] || {
+      home: match.home_score ?? '',
+      away: match.away_score ?? '',
+      status: match.status,
+    };
     setSaving(true);
 
     const homeScore = parseInt(edit.home);
     const awayScore = parseInt(edit.away);
 
     let winnerId = null;
-    const match = matches.find((m) => m.id === matchId);
     if (edit.status === 'final' && match) {
       if (homeScore > awayScore) winnerId = match.home_team_id;
       else if (awayScore > homeScore) winnerId = match.away_team_id;
@@ -193,7 +199,7 @@ export default function AdminPage() {
         )}
 
         <div className="flex gap-2 mb-6">
-          {(['entries', 'results', 'export'] as const).map((tab) => (
+          {(['entries', 'results', 'knockout', 'export'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -206,7 +212,9 @@ export default function AdminPage() {
               {tab === 'entries'
                 ? `👥 Entries (${entries.length})`
                 : tab === 'results'
-                ? '⚽ Match Results'
+                ? '⚽ Group Results'
+                : tab === 'knockout'
+                ? '🏆 Knockout'
                 : '📥 Export'}
             </button>
           ))}
@@ -379,6 +387,14 @@ export default function AdminPage() {
           </div>
         )}
 
+        {activeTab === 'knockout' && (
+          <KnockoutPanel
+            teams={teams}
+            matches={matches}
+            onSaved={fetchData}
+          />
+        )}
+
         {activeTab === 'export' && (
           <div className="card">
             <h3 className="text-lg font-bold text-gray-800 mb-2">Export Data</h3>
@@ -392,6 +408,278 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Knockout panel: enter R32 matchups + all knockout scores.
+// Winners auto-advance server-side; scoring recomputes on save.
+// ============================================================
+
+type KTeam = { id: string; name: string; flag_emoji?: string };
+type KMatch = {
+  slot: string;
+  round: string;
+  home_team_id: string | null;
+  away_team_id: string | null;
+  home_score: number | null;
+  away_score: number | null;
+  status: string;
+  winner_team_id: string | null;
+};
+
+// FIFA slot code -> app slot (reverse of the server map) and round label.
+const MATCH_TO_SLOT: Record<string, string> = {
+  M73: 'R32_01', M74: 'R32_02', M75: 'R32_03', M76: 'R32_04',
+  M77: 'R32_05', M78: 'R32_06', M79: 'R32_07', M80: 'R32_08',
+  M81: 'R32_09', M82: 'R32_10', M83: 'R32_11', M84: 'R32_12',
+  M85: 'R32_13', M86: 'R32_14', M87: 'R32_15', M88: 'R32_16',
+  M89: 'R16_01', M90: 'R16_02', M91: 'R16_03', M92: 'R16_04',
+  M93: 'R16_05', M94: 'R16_06', M95: 'R16_07', M96: 'R16_08',
+  M97: 'QF_01', M98: 'QF_02', M99: 'QF_03', M100: 'QF_04',
+  M101: 'SF_01', M102: 'SF_02', M104: 'FINAL_01',
+};
+
+const ROUND_ORDER = ['R32', 'R16', 'QF', 'SF', 'FINAL'];
+const ROUND_LABEL: Record<string, string> = {
+  R32: 'Round of 32',
+  R16: 'Round of 16',
+  QF: 'Quarter-finals',
+  SF: 'Semi-finals',
+  FINAL: 'Final',
+};
+
+function roundOf(appSlot: string): string {
+  if (appSlot.startsWith('R32')) return 'R32';
+  if (appSlot.startsWith('R16')) return 'R16';
+  if (appSlot.startsWith('QF')) return 'QF';
+  if (appSlot.startsWith('SF')) return 'SF';
+  return 'FINAL';
+}
+
+function KnockoutPanel({
+  teams,
+  matches,
+  onSaved,
+}: {
+  teams: KTeam[];
+  matches: KMatch[];
+  onSaved: () => void;
+}) {
+  const [edits, setEdits] = useState<Record<string, any>>({});
+  const [savingSlot, setSavingSlot] = useState<string | null>(null);
+  const [note, setNote] = useState('');
+
+  // Only knockout matches (those in the MATCH_TO_SLOT map).
+  const koMatches = matches
+    .filter((m) => MATCH_TO_SLOT[m.slot])
+    .map((m) => ({ ...m, appSlot: MATCH_TO_SLOT[m.slot] }))
+    .sort((a, b) => a.appSlot.localeCompare(b.appSlot));
+
+  const sortedTeams = [...teams].sort((a, b) => a.name.localeCompare(b.name));
+  const teamName = (id: string | null) =>
+    id ? teams.find((t) => t.id === id)?.name ?? '—' : '—';
+
+  const editFor = (m: any) =>
+    edits[m.appSlot] || {
+      homeTeamId: m.home_team_id || '',
+      awayTeamId: m.away_team_id || '',
+      homeScore: m.home_score ?? '',
+      awayScore: m.away_score ?? '',
+      penHome: '',
+      penAway: '',
+      status: m.status || 'scheduled',
+    };
+
+  const setField = (slot: string, base: any, field: string, value: any) => {
+    setEdits((prev) => ({
+      ...prev,
+      [slot]: { ...base, [field]: value },
+    }));
+  };
+
+  const save = async (m: any) => {
+    const e = editFor(m);
+    setSavingSlot(m.appSlot);
+    setNote('');
+    try {
+      const res = await fetch('/api/knockout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slot: m.appSlot, ...e }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setNote(`⚠️ ${data.error ?? 'Save failed'}`);
+      } else {
+        const adv = data.advancedTo
+          ? ` Winner advanced to ${data.advancedTo}.`
+          : '';
+        setNote(`✓ Saved ${m.appSlot}.${adv} Scores recomputed.`);
+        onSaved();
+      }
+    } catch (err: any) {
+      setNote(`⚠️ ${err?.message ?? 'Network error'}`);
+    }
+    setSavingSlot(null);
+    setTimeout(() => setNote(''), 5000);
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="card bg-amber-50 border border-amber-200">
+        <p className="text-sm text-amber-800">
+          <strong>How this works:</strong> For the Round of 32, pick both teams
+          from the official matchups and enter the score. When you mark a match{' '}
+          <strong>Final</strong>, the winner automatically moves into the next
+          round below. Penalty boxes only matter if the score is a draw.
+        </p>
+      </div>
+
+      {note && (
+        <div className="card text-sm text-gray-700 bg-white">{note}</div>
+      )}
+
+      {ROUND_ORDER.map((round) => {
+        const inRound = koMatches.filter((m) => roundOf(m.appSlot) === round);
+        if (inRound.length === 0) return null;
+        return (
+          <div key={round} className="flex flex-col gap-3">
+            <h3 className="text-lg font-bold text-gray-800 mt-2">
+              {ROUND_LABEL[round]}
+            </h3>
+            {inRound.map((m) => {
+              const e = editFor(m);
+              const isR32 = round === 'R32';
+              return (
+                <div key={m.appSlot} className="card">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-semibold text-gray-800 text-sm">
+                      {m.appSlot} ({m.slot})
+                    </span>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        m.status === 'final'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {m.status}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* HOME team: dropdown for R32, name label otherwise */}
+                    {isR32 ? (
+                      <select
+                        value={e.homeTeamId}
+                        onChange={(ev) =>
+                          setField(m.appSlot, e, 'homeTeamId', ev.target.value)
+                        }
+                        className="border-2 border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-800 max-w-[160px]"
+                      >
+                        <option value="">— home team —</option>
+                        {sortedTeams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm font-medium text-gray-800 min-w-[120px]">
+                        {teamName(m.home_team_id)}
+                      </span>
+                    )}
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="H"
+                      value={e.homeScore}
+                      onChange={(ev) =>
+                        setField(m.appSlot, e, 'homeScore', ev.target.value)
+                      }
+                      className="w-14 border-2 border-gray-200 rounded-lg px-2 py-2 text-center font-bold text-gray-800"
+                    />
+                    <span className="text-gray-400 font-bold">–</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="A"
+                      value={e.awayScore}
+                      onChange={(ev) =>
+                        setField(m.appSlot, e, 'awayScore', ev.target.value)
+                      }
+                      className="w-14 border-2 border-gray-200 rounded-lg px-2 py-2 text-center font-bold text-gray-800"
+                    />
+                    {isR32 ? (
+                      <select
+                        value={e.awayTeamId}
+                        onChange={(ev) =>
+                          setField(m.appSlot, e, 'awayTeamId', ev.target.value)
+                        }
+                        className="border-2 border-gray-200 rounded-lg px-2 py-2 text-sm text-gray-800 max-w-[160px]"
+                      >
+                        <option value="">— away team —</option>
+                        {sortedTeams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-sm font-medium text-gray-800 min-w-[120px]">
+                        {teamName(m.away_team_id)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
+                    <span className="text-xs text-gray-400">
+                      Pens (if drawn):
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="H"
+                      value={e.penHome}
+                      onChange={(ev) =>
+                        setField(m.appSlot, e, 'penHome', ev.target.value)
+                      }
+                      className="w-12 border-2 border-gray-200 rounded-lg px-2 py-1 text-center text-sm text-gray-800"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="A"
+                      value={e.penAway}
+                      onChange={(ev) =>
+                        setField(m.appSlot, e, 'penAway', ev.target.value)
+                      }
+                      className="w-12 border-2 border-gray-200 rounded-lg px-2 py-1 text-center text-sm text-gray-800"
+                    />
+                    <select
+                      value={e.status}
+                      onChange={(ev) =>
+                        setField(m.appSlot, e, 'status', ev.target.value)
+                      }
+                      className="border-2 border-gray-200 rounded-lg px-2 py-1 text-sm text-gray-800"
+                    >
+                      <option value="scheduled">Scheduled</option>
+                      <option value="final">Final</option>
+                    </select>
+                    <button
+                      onClick={() => save(m)}
+                      disabled={savingSlot === m.appSlot}
+                      className="btn-primary py-1.5 px-4 text-sm"
+                    >
+                      {savingSlot === m.appSlot ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
