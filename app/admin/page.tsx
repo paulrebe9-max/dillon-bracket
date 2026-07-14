@@ -114,7 +114,7 @@ export default function AdminPage() {
 
     // Recompute everyone's points now that this result changed.
     try {
-      await fetch('/api/recompute', { method: 'POST' });
+      await fetch('/api/sync/recompute', { method: 'POST' });
     } catch {
       // non-fatal: the result is saved; scores can be recomputed via Sync too
     }
